@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>tech.coinbub</groupId>
+        <artifactId>coinbub-parent</artifactId>
+        <version>1.0.1</version>
+    </parent>
+    <artifactId>daemon-test-utils</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Daemon :: Test Utils</name>
+    <description>Testing utilities for the majority of daemon interface
+        integration tests.</description>
+    <url>https://github.com/CoinBub/daemon-test-utils</url>
+
+    <scm>
+        <connection>scm:git:git://github.com/CoinBub/daemon-test-utils.git</connection>
+        <developerConnection>scm:git:ssh://github.com:CoinBub/daemon-test-utils.git</developerConnection>
+        <url>http://github.com/CoinBub/daemon-test-utils/tree/master</url>
+    </scm>
+
+    <dependencies>
+        <!-- Test Dependencies -->
+        <dependency>
+            <groupId>com.github.briandilley.jsonrpc4j</groupId>
+            <artifactId>jsonrpc4j</artifactId>
+            <version>1.5.3</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.docker-java</groupId>
+            <artifactId>docker-java</artifactId>
+            <version>3.0.14</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.activation</groupId>
+            <artifactId>activation</artifactId>
+            <version>1.1.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>5.1.1</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>1.7.25</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest-all</artifactId>
+            <version>1.3</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>
