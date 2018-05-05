@@ -7,8 +7,13 @@ import com.github.dockerjava.api.model.ExposedPort;
 import com.github.dockerjava.api.model.PortBinding;
 import com.github.dockerjava.api.model.Ports;
 import com.github.dockerjava.api.model.Image;
+import com.github.dockerjava.api.model.ContainerNetwork;
+import com.github.dockerjava.api.model.NetworkSettings;
 import com.github.dockerjava.api.command.CreateContainerCmd;
+import com.github.dockerjava.api.exception.NotFoundException;
+import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.core.DockerClientBuilder;
+import com.github.dockerjava.core.command.LogContainerResultCallback;
 import com.github.dockerjava.core.command.PullImageResultCallback;
 import com.googlecode.jsonrpc4j.IJsonRpcClient;
 import com.googlecode.jsonrpc4j.JsonRpcClient;
@@ -17,6 +22,7 @@ import com.googlecode.jsonrpc4j.ProxyUtil;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -36,9 +42,10 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
     private static String image;
     private static String portStr;
     private static int portNum;
+    private static String host = "localhost";
     private static String rpcuser;
     private static String rpcpass;
-    private static String name;
+    private static String name = "dockerized-test";
     private static String[] cmd;
     private static String confPath;
     private static boolean persistent = false;
@@ -60,13 +67,25 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
 
         docker = DockerClientBuilder.getInstance().build();
 
-        pullImage();
-        createContainer();
-        copyConfiguration();
-        startContainer();
-        getHostPortBinding();
+        if (System.getProperty("containerLocation") == null) {
+            pullImage();
+            createContainer();
+            copyConfiguration();
+            startContainer();
+            getHostPortBinding();
+            Runtime.getRuntime()
+                    .addShutdownHook(new Thread(() -> {
+                        if (!persistent) {
+                            docker.stopContainerCmd(containerId).exec();
+                            docker.removeContainerCmd(containerId).exec();
+                            LOGGER.info("Stopped and removed container {}", containerId);
+                        } else {
+                            LOGGER.info("Left container {} alive", containerId);
+                        }
+                    }));
+        }
 
-        final URL url = new URL("http://" + System.getProperty("DOCKER_HOST", "localhost") + ":" + hostPort);
+        final URL url = new URL("http://" + System.getProperty("containerLocation", host + ":" + hostPort));
         LOGGER.info("Using URL {}", url.toString());
         rpcClient = new JsonRpcHttpClient(url, Util.headers(rpcuser, rpcpass));
         client = ProxyUtil.createClientProxy(
@@ -74,17 +93,6 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
                 clientClass,
                 (IJsonRpcClient) rpcClient);
         Thread.sleep(2000l);
-
-        Runtime.getRuntime()
-                .addShutdownHook(new Thread(() -> {
-                    if (!persistent) {
-                        docker.stopContainerCmd(containerId).exec();
-                        docker.removeContainerCmd(containerId).exec();
-                        LOGGER.info("Stopped and removed container {}", containerId);
-                    } else {
-                        LOGGER.info("Left container {} alive", containerId);
-                    }
-                }));
     }
 
     @Override
@@ -119,7 +127,7 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
         portNum = Integer.parseInt(portStr);
         rpcuser = props.getProperty("rpcuser", "user");
         rpcpass = props.getProperty("rpcpass", "pass");
-        name = props.getProperty("name");
+        name = props.getProperty("name", name);
         if (props.contains("cmd")) {
             cmd = props.getProperty("cmd").split(" ");
         }
@@ -130,7 +138,8 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
 
     /**
      * Pulls down the requested image if it doesn't already exist locally.
-     * @throws InterruptedException 
+     *
+     * @throws InterruptedException
      */
     private void pullImage() throws InterruptedException {
         final List<Image> img = docker.listImagesCmd()
@@ -147,29 +156,30 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
      * Create the container if it doesn't already exist
      */
     private void createContainer() {
-        
         try {
-            final CreateContainerCmd result = docker.createContainerCmd(image)
-                    .withStdInOnce(false)
-                    .withStdinOpen(false)
-                    .withPortSpecs(portStr)
-                    .withExposedPorts(ExposedPort.tcp(portNum))
-                    .withPortBindings(new PortBinding(Ports.Binding.bindIp("0.0.0.0"), ExposedPort.tcp(portNum)));
-            if (name != null) {
-                result.withName(name);
-            }
-            if (cmd != null) {
-                result.withCmd(cmd);
-            }
-            containerId = result.exec()
-                    .getId();
-            LOGGER.info("Started container {}", containerId);
-        } catch (ConflictException ex) {
+            final List<Container> containers = docker.listContainersCmd()
+                    .withShowAll(true)
+                    .exec();
             containerId = docker.inspectContainerCmd(name)
                     .exec()
                     .getId();
             LOGGER.info("Container {} already exists with id {}", name, containerId);
+            return;
+        } catch (NotFoundException ex) {}
+
+        final CreateContainerCmd result = docker.createContainerCmd(image)
+                .withStdInOnce(false)
+                .withStdinOpen(false)
+                .withPortSpecs(portStr)
+                .withExposedPorts(ExposedPort.tcp(portNum))
+                .withPortBindings(new PortBinding(Ports.Binding.bindIp("0.0.0.0"), ExposedPort.tcp(portNum)))
+                .withName(name);
+        if (cmd != null) {
+            result.withCmd(cmd);
         }
+        containerId = result.exec()
+                .getId();
+        LOGGER.info("Built container {}", containerId);
     }
 
     private void copyConfiguration() throws IOException {
@@ -189,17 +199,42 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
         try {
             docker.startContainerCmd(containerId)
                     .exec();
-            LOGGER.info("Container {} started", containerId);
+            LOGGER.info("Started container {}", containerId);
         } catch (NotModifiedException ex) {
-            LOGGER.info("Container {} already started", containerId);
+            LOGGER.info("Container {} already running", containerId);
         }
     }
 
-    private void getHostPortBinding() {
-        Map<ExposedPort, Ports.Binding[]> bindings = docker.inspectContainerCmd(containerId)
+    private void getHostPortBinding() throws IOException {
+        final NetworkSettings network = docker.inspectContainerCmd(containerId)
                 .exec()
-                .getNetworkSettings()
-                .getPorts()
+                .getNetworkSettings();
+
+        // Grab the host of the docker container
+        if (System.getProperty("dockerizedByIP", "false").equals("true")) {
+            LOGGER.debug("Connecting to container by IP");
+            for (Map.Entry<String, ContainerNetwork> net : network.getNetworks().entrySet()) {
+                LOGGER.debug("Network {} IP {}", net.getValue().getNetworkID(), net.getValue().getIpAddress());
+                host = net.getValue().getIpAddress();
+            }
+            LOGGER.info("Using host {}", host);
+        } else if (System.getProperty("dockerizedHost") != null) {
+            String urlStr = System.getProperty("dockerizedHost");
+            if (urlStr.contains("://")) {
+                urlStr = urlStr.split("://")[1];
+            }
+            final URL netUrl = new URL("http://" + urlStr);
+            host = netUrl.getHost();
+        }
+
+        if (System.getProperty("dockerizedUseContainerPort", "false").equals("true")) {
+            hostPort = portNum;
+            LOGGER.info("Using container port {}", hostPort);
+            return;
+        }
+
+        // Otherwise, grab the port bound to the exposed docker port
+        final Map<ExposedPort, Ports.Binding[]> bindings = network.getPorts()
                 .getBindings();
         for (Map.Entry<ExposedPort, Ports.Binding[]> port : bindings.entrySet()) {
             if (port.getKey().getPort() == portNum) {
@@ -214,5 +249,6 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
             throw new RuntimeException("RPC port " + portNum + " not bound to host");
         }
         LOGGER.info("RPC port {} bound to {}", portNum, hostPort);
+
     }
 }

@@ -3,6 +3,7 @@ jobs:
   build:
     docker:
       - image: circleci/openjdk:8-jdk
+      - image: coinbub/dockerized-test
 
     steps:
       - checkout
@@ -19,12 +20,8 @@ jobs:
       - setup_remote_docker
 
       - run:
-          name: Build test docker image
-          command: docker build -t coinbub/dockerized-test src/test/resources
-
-      - run:
           name: Test
-          command: mvn test
+          command: mvn clean test -DcontainerLocation=localhost:8080
 
       - save_cache:
           paths:
