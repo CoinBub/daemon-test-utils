@@ -21,7 +21,7 @@ jobs:
 
       - run:
           name: Test
-          command: mvn clean test -DcontainerLocation=localhost:8080
+          command: mvn clean test jacoco:report coveralls:report -DcontainerLocation=localhost:8080
 
       - save_cache:
           paths:
