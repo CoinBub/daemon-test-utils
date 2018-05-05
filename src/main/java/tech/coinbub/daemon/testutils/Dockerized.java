@@ -66,7 +66,9 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
         startContainer();
         getHostPortBinding();
 
-        rpcClient = new JsonRpcHttpClient(new URL("http://" + System.getProperty("DOCKER_HOST", "localhost") + ":" + hostPort), Util.headers(rpcuser, rpcpass));
+        final URL url = new URL("http://" + System.getProperty("DOCKER_HOST", "localhost") + ":" + hostPort);
+        LOGGER.info("Using URL {}", url.toString());
+        rpcClient = new JsonRpcHttpClient(url, Util.headers(rpcuser, rpcpass));
         client = ProxyUtil.createClientProxy(
                 this.getClass().getClassLoader(),
                 clientClass,
