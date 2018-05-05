@@ -1,10 +1,13 @@
 package tech.coinbub.daemon.testutils;
 
 import com.github.dockerjava.api.DockerClient;
+import com.github.dockerjava.api.exception.ConflictException;
+import com.github.dockerjava.api.exception.NotModifiedException;
 import com.github.dockerjava.api.model.ExposedPort;
 import com.github.dockerjava.api.model.PortBinding;
 import com.github.dockerjava.api.model.Ports;
 import com.github.dockerjava.core.DockerClientBuilder;
+import com.github.dockerjava.core.command.PullImageResultCallback;
 import com.googlecode.jsonrpc4j.IJsonRpcClient;
 import com.googlecode.jsonrpc4j.JsonRpcClient;
 import com.googlecode.jsonrpc4j.JsonRpcHttpClient;
@@ -58,20 +61,32 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
         final String confPath = props.getProperty("conf");
         clientClass = Class.forName(props.getProperty("class"));
         persistent = Boolean.parseBoolean(props.getProperty("persistent", "false"));
-        
+
 
         docker = DockerClientBuilder.getInstance().build();
-        containerId = docker.createContainerCmd(image)
-                .withStdInOnce(false)
-                .withStdinOpen(false)
-                .withPortSpecs(portStr)
-                .withExposedPorts(ExposedPort.tcp(portNum))
-                .withPortBindings(new PortBinding(Ports.Binding.bindIp("0.0.0.0"), ExposedPort.tcp(portNum)))
-                .withName(name)
-                .withCmd(cmd)
-                .exec()
-                .getId();
-        LOGGER.info("Started container {}", containerId);
+
+        // Pull image
+        docker.pullImageCmd(image)
+                .exec(new PullImageResultCallback())
+                .awaitCompletion();
+        try {
+            containerId = docker.createContainerCmd(image)
+                    .withStdInOnce(false)
+                    .withStdinOpen(false)
+                    .withPortSpecs(portStr)
+                    .withExposedPorts(ExposedPort.tcp(portNum))
+                    .withPortBindings(new PortBinding(Ports.Binding.bindIp("0.0.0.0"), ExposedPort.tcp(portNum)))
+                    .withName(name)
+                    .withCmd(cmd)
+                    .exec()
+                    .getId();
+            LOGGER.info("Started container {}", containerId);
+        } catch (ConflictException ex) {
+            containerId = docker.inspectContainerCmd(name)
+                    .exec()
+                    .getId();
+            LOGGER.info("Container {} already exists with id {}", name, containerId);
+        }
 
         try (InputStream stream = this.getClass().getResourceAsStream("/conf.tar.gz")) {
             if (stream == null) {
@@ -81,8 +96,15 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
                     .withTarInputStream(stream)
                     .withRemotePath(confPath)
                     .exec();
-            docker.startContainerCmd(containerId)
-                    .exec();
+
+            try {
+                docker.startContainerCmd(containerId)
+                        .exec();
+                LOGGER.info("Container {} started", containerId);
+            } catch (NotModifiedException ex) {
+                LOGGER.info("Container {} already started", containerId);
+            }
+
             Map<ExposedPort, Ports.Binding[]> bindings = docker.inspectContainerCmd(containerId)
                     .exec()
                     .getNetworkSettings()
