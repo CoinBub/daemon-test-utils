@@ -86,7 +86,7 @@ public class Dockerized implements BeforeAllCallback, BeforeEachCallback, Parame
                     }));
         }
 
-        final URL url = new URL("http://" + System.getProperty("containerLocation", host + ":" + hostPort));
+        final URL url = new URL("http://" + System.getProperty("containerHost", host) + ":" + System.getProperty("containerPort", Integer.toString(hostPort)));
         LOGGER.info("Using URL {}", url.toString());
         rpcClient = new JsonRpcHttpClient(url, Util.headers(rpcuser, rpcpass));
         client = ProxyUtil.createClientProxy(
