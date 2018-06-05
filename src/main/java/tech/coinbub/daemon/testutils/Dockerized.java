@@ -26,6 +26,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import org.apache.commons.lang.StringUtils;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.ParameterContext;
@@ -128,8 +129,11 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
         rpcuser = props.getProperty("rpcuser", "user");
         rpcpass = props.getProperty("rpcpass", "pass");
         name = props.getProperty("name", name);
-        if (props.contains("cmd")) {
+        if (props.containsKey("cmd")) {
             cmd = props.getProperty("cmd").split(" ");
+            for (int i = cmd.length - 1; i >= 0; i--) {
+                cmd[i] = StringUtils.strip(cmd[i], "\"'");
+            }
         }
         confPath = props.getProperty("conf");
         clientClass = Class.forName(props.getProperty("class"));
