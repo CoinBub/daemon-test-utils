@@ -1,7 +1,6 @@
 package tech.coinbub.daemon.testutils;
 
 import com.github.dockerjava.api.DockerClient;
-import com.github.dockerjava.api.exception.ConflictException;
 import com.github.dockerjava.api.exception.NotModifiedException;
 import com.github.dockerjava.api.model.ExposedPort;
 import com.github.dockerjava.api.model.PortBinding;
@@ -13,7 +12,6 @@ import com.github.dockerjava.api.command.CreateContainerCmd;
 import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.core.DockerClientBuilder;
-import com.github.dockerjava.core.command.LogContainerResultCallback;
 import com.github.dockerjava.core.command.PullImageResultCallback;
 import com.googlecode.jsonrpc4j.IJsonRpcClient;
 import com.googlecode.jsonrpc4j.JsonRpcClient;
@@ -22,12 +20,12 @@ import com.googlecode.jsonrpc4j.ProxyUtil;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import org.apache.commons.lang.StringUtils;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
+import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.ParameterContext;
 import org.junit.jupiter.api.extension.ParameterResolutionException;
@@ -35,7 +33,7 @@ import org.junit.jupiter.api.extension.ParameterResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class Dockerized implements BeforeAllCallback, ParameterResolver {
+public class Dockerized implements BeforeAllCallback, BeforeEachCallback, ParameterResolver {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Dockerized.class);
 
@@ -56,7 +54,9 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
     private static int hostPort = -1;
     private static JsonRpcClient rpcClient;
     private static Class<?> clientClass;
+    private static Class<?> normalizedClass;
     private static Object client;
+    private static Object normalized;
 
     @Override
     public void beforeAll(final ExtensionContext context) throws Exception {
@@ -93,21 +93,33 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
                 this.getClass().getClassLoader(),
                 clientClass,
                 (IJsonRpcClient) rpcClient);
+        if (normalizedClass != null) {
+            normalized = normalizedClass.getConstructor(clientClass).newInstance(client);
+        }
         Thread.sleep(2000l);
+    }
+
+    @Override
+    public void beforeEach(final ExtensionContext context) throws Exception {
+        context.getStore(ExtensionContext.Namespace.GLOBAL).put(Dockerized.class, client);
     }
 
     @Override
     public boolean supportsParameter(final ParameterContext parameterContext,
             final ExtensionContext extensionContext)
             throws ParameterResolutionException {
-        return parameterContext.getParameter().getType().equals(clientClass);
+        return parameterContext.getParameter().getType().equals(clientClass)
+                || parameterContext.getParameter().getType().equals(normalizedClass);
     }
 
     @Override
     public Object resolveParameter(final ParameterContext parameterContext,
             final ExtensionContext extensionContext)
             throws ParameterResolutionException {
-        return client;
+        if (parameterContext.getParameter().getType().equals(clientClass)) {
+            return client;
+        }
+        return normalized;
     }
 
     private void getParameters() throws IOException, ClassNotFoundException {
@@ -137,6 +149,9 @@ public class Dockerized implements BeforeAllCallback, ParameterResolver {
         }
         confPath = props.getProperty("conf");
         clientClass = Class.forName(props.getProperty("class"));
+        if (props.containsKey("normalized")) {
+            normalizedClass = Class.forName(props.getProperty("normalized"));
+        }
         persistent = Boolean.parseBoolean(props.getProperty("persistent", "false"));
     }
 
