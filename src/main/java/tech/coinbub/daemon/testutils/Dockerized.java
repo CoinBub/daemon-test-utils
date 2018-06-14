@@ -1,28 +1,29 @@
 package tech.coinbub.daemon.testutils;
 
 import com.github.dockerjava.api.DockerClient;
-import com.github.dockerjava.api.exception.NotModifiedException;
-import com.github.dockerjava.api.model.ExposedPort;
-import com.github.dockerjava.api.model.PortBinding;
-import com.github.dockerjava.api.model.Ports;
-import com.github.dockerjava.api.model.Image;
-import com.github.dockerjava.api.model.ContainerNetwork;
-import com.github.dockerjava.api.model.NetworkSettings;
 import com.github.dockerjava.api.command.CreateContainerCmd;
 import com.github.dockerjava.api.exception.NotFoundException;
+import com.github.dockerjava.api.exception.NotModifiedException;
 import com.github.dockerjava.api.model.Container;
+import com.github.dockerjava.api.model.ContainerNetwork;
+import com.github.dockerjava.api.model.ExposedPort;
+import com.github.dockerjava.api.model.Image;
+import com.github.dockerjava.api.model.NetworkSettings;
+import com.github.dockerjava.api.model.PortBinding;
+import com.github.dockerjava.api.model.Ports;
 import com.github.dockerjava.core.DockerClientBuilder;
 import com.github.dockerjava.core.command.PullImageResultCallback;
 import com.googlecode.jsonrpc4j.IJsonRpcClient;
 import com.googlecode.jsonrpc4j.JsonRpcClient;
 import com.googlecode.jsonrpc4j.JsonRpcHttpClient;
-import com.googlecode.jsonrpc4j.ProxyUtil;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.StringTokenizer;
 import org.apache.commons.lang.StringUtils;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.extension.ParameterResolutionException;
 import org.junit.jupiter.api.extension.ParameterResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tech.coinbub.daemon.proxy.ProxyUtil;
 
 public class Dockerized implements BeforeAllCallback, BeforeEachCallback, ParameterResolver {
 
@@ -121,6 +123,74 @@ public class Dockerized implements BeforeAllCallback, BeforeEachCallback, Parame
         }
         return normalized;
     }
+    
+    /**
+     * [code borrowed from ant.jar]
+     * Crack a command line.
+     * @param cmd the command line to process.
+     * @return the command line broken into strings.
+     * An empty or null toProcess parameter results in a zero sized array.
+     */
+    private static String[] parseCommand(final String cmd) {
+        if (cmd == null || cmd.length() == 0) {
+            //no command? no string
+            return new String[0];
+        }
+        // parse with a simple finite state machine
+
+        final int normal = 0;
+        final int inQuote = 1;
+        final int inDoubleQuote = 2;
+        int state = normal;
+        final StringTokenizer tok = new StringTokenizer(cmd, "\"\' ", true);
+        final ArrayList<String> result = new ArrayList<>();
+        final StringBuilder current = new StringBuilder();
+        boolean lastTokenHasBeenQuoted = false;
+
+        while (tok.hasMoreTokens()) {
+            String nextTok = tok.nextToken();
+            switch (state) {
+            case inQuote:
+                if ("\'".equals(nextTok)) {
+                    lastTokenHasBeenQuoted = true;
+                    state = normal;
+                } else {
+                    current.append(nextTok);
+                }
+                break;
+            case inDoubleQuote:
+                if ("\"".equals(nextTok)) {
+                    lastTokenHasBeenQuoted = true;
+                    state = normal;
+                } else {
+                    current.append(nextTok);
+                }
+                break;
+            default:
+                if ("\'".equals(nextTok)) {
+                    state = inQuote;
+                } else if ("\"".equals(nextTok)) {
+                    state = inDoubleQuote;
+                } else if (" ".equals(nextTok)) {
+                    if (lastTokenHasBeenQuoted || current.length() != 0) {
+                        result.add(current.toString());
+                        current.setLength(0);
+                    }
+                } else {
+                    current.append(nextTok);
+                }
+                lastTokenHasBeenQuoted = false;
+                break;
+            }
+        }
+        if (lastTokenHasBeenQuoted || current.length() != 0) {
+            result.add(current.toString());
+        }
+        if (state == inQuote || state == inDoubleQuote) {
+            throw new RuntimeException("unbalanced quotes in " + cmd);
+        }
+        return result.toArray(new String[result.size()]);
+    }
 
     private void getParameters() throws IOException, ClassNotFoundException {
         if (props != null) {
@@ -142,10 +212,8 @@ public class Dockerized implements BeforeAllCallback, BeforeEachCallback, Parame
         rpcpass = props.getProperty("rpcpass", "pass");
         name = props.getProperty("name", name);
         if (props.containsKey("cmd")) {
-            cmd = props.getProperty("cmd").split(" ");
-            for (int i = cmd.length - 1; i >= 0; i--) {
-                cmd[i] = StringUtils.strip(cmd[i], "\"'");
-            }
+            cmd = parseCommand(props.getProperty("cmd"));
+            LOGGER.info("Command: {}", cmd);
         }
         confPath = props.getProperty("conf");
         clientClass = Class.forName(props.getProperty("class"));
